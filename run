@@ -1,0 +1,25 @@
+#!/bin/bash
+
+# TODO: it would be nicer to make lxc detection seamless, but for now,
+# use a cmdline arg.
+if [ "$1" == "lxc" ]; then
+    # XXX: change if your container has a different name
+    CONTAINER=ubuntu-sdk
+
+    if ! lxc-wait -n $CONTAINER -s RUNNING -t 0; then
+        lxc-start -n $CONTAINER -d
+        lxc-wait -n $CONTAINER -s RUNNING
+    fi
+
+    user=$(logname)
+    wd=`pwd | sed "s/$user/ubuntu/"`
+
+    lxc-attach --clear-env -n $CONTAINER -- sudo -u ubuntu -i \
+        env DISPLAY=$DISPLAY QML2_IMPORT_PATH=$LIBDIR \
+        QT_LOGGING_RULES="tg.net.*.debug=false" \
+        bash -c "cd $wd && qmlscene telegram.qml"
+
+    lxc-stop -n $CONTAINER -t 10
+else
+    QML2_IMPORT_PATH=$LIBDIR qmlscene telegram.qml
+fi

@@ -1,0 +1,33 @@
+#!/bin/bash
+
+# TODO: it would be nicer to make lxc detection seamless, but for now,
+# use a cmdline arg.
+if [ "$1" == "lxc" ]; then
+    # XXX: change if your container has a different name
+    CONTAINER=ubuntu-sdk
+
+    if ! lxc-wait -n $CONTAINER -s RUNNING -t 0; then
+        lxc-start -n $CONTAINER -d
+        lxc-wait -n $CONTAINER -s RUNNING
+    fi
+
+    user=$(logname)
+    wd=`pwd | sed "s/$user/ubuntu/"`
+
+    # My my, aren't we clever. We call ourselves inside the LXC, but
+    # without the 'lxc' cmdline arg, and thus skip this block inside.
+    lxc-attach --clear-env -n $CONTAINER -- sudo -u ubuntu -i \
+        bash -c "cd $wd && ./build.sh"
+
+    lxc-stop -n $CONTAINER -t 10
+
+    # Exit after building inside.
+    exit
+fi
+
+ARCH_TRIPLET=`dpkg-architecture -qDEB_HOST_MULTIARCH`
+
+mkdir -p build && cd build
+cmake .. -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_INSTALL_LIBDIR=lib/$ARCH_TRIPLET
+make
+

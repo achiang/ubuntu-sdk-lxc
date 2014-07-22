@@ -1,0 +1,129 @@
+#!/bin/bash
+
+set -e
+
+# Replace with Depends after conversion to package
+apt-get install lxc systemd-services uidmap -y
+
+########################################################################
+## Setup for unprivileged container
+## https://www.stgraber.org/2014/01/17/lxc-1-0-unprivileged-containers/
+########################################################################
+
+usermod --add-subuids 100000-165536 $(logname)
+usermod --add-subgids 100000-165536 $(logname)
+
+# Needed by LXC to access ~/.local/share/lxc
+chmod +x $HOME
+
+# We use multiple variants of bash heredocs, cf:
+# http://stackoverflow.com/q/2953081/
+# Leading whitespace must be tab chars when using <<-
+mkdir -p $HOME/.config/lxc
+cat <<- EOF > $HOME/.config/lxc/default.conf
+	lxc.network.type = veth
+	lxc.network.link = lxcbr0
+	lxc.network.flags = up
+	lxc.network.hwaddr = 00:16:3e:xx:xx:xx
+	lxc.id_map = u 0 100000 65536
+	lxc.id_map = g 0 100000 65536
+EOF
+chown -R $(logname).$(logname) $HOME/.config/lxc
+
+echo "$(logname) veth lxcbr0 10" >> /etc/lxc/lxc-usernet
+
+cat << EOF >> /etc/fstab
+/home/$(logname)/Projects   /home/$(logname)/Projects   none defaults,bind 0 0
+EOF
+
+# Download official pre-built LXC container and call it 'ubuntu-sdk'
+sudo -u $(logname) lxc-create -t download -n ubuntu-sdk -- -d ubuntu -r utopic -a amd64
+
+lxc_config=$HOME/.local/share/lxc/ubuntu-sdk/config
+
+cat <<- EOF >> $lxc_config
+	# Desktop support
+	lxc.mount.entry = /dev/dri dev/dri none bind,optional,create=dir
+	lxc.mount.entry = /dev/snd dev/snd none bind,optional,create=dir
+	lxc.mount.entry = /tmp/.X11-unix tmp/.X11-unix none bind,optional,create=dir
+	lxc.mount.entry = /dev/video0 dev/video0 none bind,optional,create=file
+	lxc.hook.pre-start = /home/$(logname)/.local/share/lxc/ubuntu-sdk/setup-pulse.sh
+
+	# SDK building support
+	lxc.mount.entry = /var/lib/schroot var/lib/schroot none bind,optional,create=dir
+	lxc.mount.entry = /home/$(logname)/Projects home/ubuntu/Projects none bind,optional,create=dir
+EOF
+
+sed -i 's/^lxc.id_map/#lxc.id_map/' $lxc_config
+sed -i '/^lxc.rootfs/i \
+lxc.id_map = u 0 100000 1000 \
+lxc.id_map = g 0 100000 1000 \
+lxc.id_map = u 1000 1000 1 \
+lxc.id_map = g 1000 1000 1 \
+lxc.id_map = u 1001 101001 64535 \
+lxc.id_map = g 1001 101001 64535' $lxc_config
+
+# Another heredoc variant, do not interpret variables in below text
+cat << 'EOF' > $HOME/.local/share/lxc/ubuntu-sdk/setup-pulse.sh
+#!/bin/sh
+PULSE_PATH=$LXC_ROOTFS_PATH/home/ubuntu/.pulse_socket
+
+if [ ! -e "$PULSE_PATH" ] || [ -z "$(lsof -n $PULSE_PATH 2>&1)" ]; then
+    pactl load-module module-native-protocol-unix auth-anonymous=1 \
+        socket=$PULSE_PATH
+fi
+EOF
+chown $(logname).$(logname) $HOME/.local/share/lxc/ubuntu-sdk/setup-pulse.sh
+chmod 755 $HOME/.local/share/lxc/ubuntu-sdk/setup-pulse.sh
+
+chown -R $(id -u $(logname)):$(id -g $(logname)) ~/.local/share/lxc/ubuntu-sdk/rootfs/home/ubuntu
+
+########################################################################
+## Unprivileged container creation done, now install SDK into it
+## https://www.stgraber.org/2014/02/09/lxc-1-0-gui-in-containers/
+########################################################################
+
+sudo -u $(logname) lxc-start -n ubuntu-sdk -d
+sudo -u $(logname) lxc-attach -n ubuntu-sdk -- umount /tmp/.X11-unix
+sudo -u $(logname) lxc-attach -n ubuntu-sdk -- apt-get update
+sudo -u $(logname) lxc-attach -n ubuntu-sdk -- apt-get dist-upgrade -y
+sudo -u $(logname) lxc-attach -n ubuntu-sdk -- apt-get install wget ubuntu-artwork dmz-cursor-theme ca-certificates pulseaudio ubuntu-sdk -y
+sudo -u $(logname) lxc-attach -n ubuntu-sdk -- sudo -u ubuntu mkdir -p /home/ubuntu/.pulse/
+sudo -u $(logname) echo "disable-shm=yes" | lxc-attach -n ubuntu-sdk -- sudo -u ubuntu tee /home/ubuntu/.pulse/client.conf
+sudo -u $(logname) lxc-stop -n ubuntu-sdk
+
+cat << 'EOF' > $HOME/.local/share/lxc/ubuntu-sdk/start-sdk
+#!/bin/sh
+CONTAINER=ubuntu-sdk
+CMD_LINE="ubuntu-sdk"
+
+STARTED=false
+
+if ! lxc-wait -n $CONTAINER -s RUNNING -t 0; then
+    lxc-start -n $CONTAINER -d
+    lxc-wait -n $CONTAINER -s RUNNING
+    STARTED=true
+fi
+
+PULSE_SOCKET=/home/ubuntu/.pulse_socket
+
+lxc-attach --clear-env -n $CONTAINER -- sudo -u ubuntu -i \
+    env DISPLAY=$DISPLAY PULSE_SERVER=$PULSE_SOCKET $CMD_LINE
+
+if [ "$STARTED" = "true" ]; then
+    lxc-stop -n $CONTAINER -t 10
+fi
+EOF
+chown $(logname).$(logname) $HOME/.local/share/lxc/ubuntu-sdk/start-sdk
+chmod 755 $HOME/.local/share/lxc/ubuntu-sdk/start-sdk
+
+cat << EOF > $HOME/.local/share/applications/ubuntu-sdk.desktop
+[Desktop Entry]
+Version=1.0
+Name=Ubuntu SDK
+Exec=/home/$(logname)/.local/share/lxc/ubuntu-sdk/start-sdk
+Icon=/home/$(logname)/.local/share/lxc/ubuntu-sdk/rootfs/usr/share/icons/ubuntu-qtcreator.png
+Type=Application
+Categories=Development;IDE;
+EOF
+chown $(logname).$(logname) $HOME/.local/share/applications/ubuntu-sdk.desktop
