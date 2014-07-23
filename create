@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 # Replace with Depends after conversion to package
 apt-get install lxc systemd-services uidmap -y
 
@@ -29,14 +31,16 @@ EOF
 chown -R $(logname).$(logname) $HOME/.config/lxc
 
 usernet_append="$(logname) veth lxcbr0 10"
-grep -q "$usernet_append" /etc/lxc/lxc-usernet
-if [ $? -ne 0 ]; then
+grep_ret=0
+grep -q "$usernet_append" /etc/lxc/lxc-usernet || grep_ret=-1
+if [ $grep_ret -ne 0 ]; then
   echo "$usernet_append" >> /etc/lxc/lxc-usernet
 fi
 
 fstab_append="/home/$(logname)/Projects   /home/$(logname)/Projects   none defaults,bind 0 0"
-grep -q "$fstab_append" /etc/fstab
-if [ $? -ne 0 ]; then
+grep_ret=0
+grep -q "$fstab_append" /etc/fstab || grep_ret=-1
+if [ $grep_ret -ne 0 ]; then
   echo "$fstab_append" >> /etc/fstab
 fi
 
@@ -96,6 +100,7 @@ chown -R $(id -u $(logname)):$(id -g $(logname)) ~/.local/share/lxc/ubuntu-sdk/r
 ########################################################################
 
 sudo -u $(logname) lxc-start -n ubuntu-sdk -d
+sudo -u $(logname) lxc-wait -n ubuntu-sdk -s RUNNING
 sudo -u $(logname) lxc-attach -n ubuntu-sdk -- umount /tmp/.X11-unix
 sudo -u $(logname) lxc-attach -n ubuntu-sdk -- apt-get update
 sudo -u $(logname) lxc-attach -n ubuntu-sdk -- apt-get dist-upgrade -y
