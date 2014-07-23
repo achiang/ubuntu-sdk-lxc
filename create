@@ -30,17 +30,33 @@ cat <<- EOF > $HOME/.config/lxc/default.conf
 EOF
 chown -R $(logname).$(logname) $HOME/.config/lxc
 
-echo "$(logname) veth lxcbr0 10" >> /etc/lxc/lxc-usernet
+usernet_append="$(logname) veth lxcbr0 10"
+grep_ret=0
+grep -q "$usernet_append" /etc/lxc/lxc-usernet || grep_ret=-1
+if [ $grep_ret -ne 0 ]; then
+  echo "$usernet_append" >> /etc/lxc/lxc-usernet
+fi
 
-cat << EOF >> /etc/fstab
-/home/$(logname)/Projects   /home/$(logname)/Projects   none defaults,bind 0 0
-EOF
+fstab_append="/home/$(logname)/Projects   /home/$(logname)/Projects   none defaults,bind 0 0"
+grep_ret=0
+grep -q "$fstab_append" /etc/fstab || grep_ret=-1
+if [ $grep_ret -ne 0 ]; then
+  echo "$fstab_append" >> /etc/fstab
+fi
 
 # Download official pre-built LXC container and call it 'ubuntu-sdk'
-sudo -u $(logname) lxc-create -t download -n ubuntu-sdk -- -d ubuntu -r utopic -a amd64
-
 lxc_config=$HOME/.local/share/lxc/ubuntu-sdk/config
+lxc_config_orig=$HOME/.local/share/lxc/ubuntu-sdk/config.orig
 
+if [ ! -d $HOME/.local/share/lxc/ubuntu-sdk ]; then
+  sudo -u $(logname) lxc-create -t download -n ubuntu-sdk -- -d ubuntu -r utopic -a amd64
+fi
+
+if [ ! -f "$lxc_config_orig" ]; then
+  cp "$lxc_config" "$lxc_config_orig"
+fi
+
+cp "$lxc_config_orig" "$lxc_config"
 cat <<- EOF >> $lxc_config
 	# Desktop support
 	lxc.mount.entry = /dev/dri dev/dri none bind,optional,create=dir
@@ -84,6 +100,7 @@ chown -R $(id -u $(logname)):$(id -g $(logname)) ~/.local/share/lxc/ubuntu-sdk/r
 ########################################################################
 
 sudo -u $(logname) lxc-start -n ubuntu-sdk -d
+sudo -u $(logname) lxc-wait -n ubuntu-sdk -s RUNNING
 sudo -u $(logname) lxc-attach -n ubuntu-sdk -- umount /tmp/.X11-unix
 sudo -u $(logname) lxc-attach -n ubuntu-sdk -- apt-get update
 sudo -u $(logname) lxc-attach -n ubuntu-sdk -- apt-get dist-upgrade -y
