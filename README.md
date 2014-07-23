@@ -15,6 +15,17 @@ These scripts provide an alternative solution:
     - build your app inside the container, using the latest Utopic APIs
     - run the app on your desktop for faster build/test/debug cycles
 
+Usage
+=====
+
+    - Run the ``create`` script with sudo privileges.
+    - Use the ``build`` script to compile your project inside the container.
+      You will need to modify it appropriately, and this is still part of
+      the WIP nature of these tools
+    - Use the ``run`` script to run your project inside the container. The
+      GUI component should automatically appear on your host desktop. This
+      script will need modification for your project as well.
+
 Status
 ======
 
