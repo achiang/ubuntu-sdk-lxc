@@ -97,7 +97,7 @@ chown -R $(id -u $(logname)):$(id -g $(logname)) ~/.local/share/lxc/$CONTAINER/r
 ########################################################################
 
 sudo -u $(logname) lxc-start -n $CONTAINER -d
-sudo -u $(logname) lxc-wait -n $CONTAINER -s RUNNING
+sudo -u $(logname) lxc-wait -n $CONTAINER -s RUNNING -t 5
 sudo -u $(logname) lxc-attach -n $CONTAINER -- umount /tmp/.X11-unix
 sudo -u $(logname) lxc-attach -n $CONTAINER -- apt-get update
 sudo -u $(logname) lxc-attach -n $CONTAINER -- apt-get dist-upgrade -y
